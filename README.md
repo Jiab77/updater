@@ -6,7 +6,7 @@ A basic script for updating several linux based distributions.
 
 Here is a list of supported distributions:
 
-* Debian / Ubuntu / Pop!_OS
+* Debian / Ubuntu / Pop!_OS / ElementaryOS
 * RedHat / CentOS / Fedora / Rocky Linux
 * Arch Linux / CachyOS
 
