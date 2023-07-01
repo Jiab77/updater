@@ -7,7 +7,7 @@ A basic script for updating several linux based distributions.
 Here is a list of supported distributions:
 
 * Debian / Ubuntu / Pop!_OS
-* RedHat / CentOS / Fedora
+* RedHat / CentOS / Fedora / Rocky Linux
 * Arch Linux / CachyOS
 
 Please, feel free to create a new issue for requesting support for additional distributions.
