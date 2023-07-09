@@ -4,7 +4,9 @@
 # Basic Ubuntu/CentOS/RockyLinux/ArchLinux semi-automatic update/upgrade script
 # Made by Jiab77 - 2022
 #
-# Version 0.6.1
+# This version contains an experimental ZFS snapshot feature.
+#
+# Version 0.6.2
 
 # Options
 set +o xtrace
@@ -18,6 +20,14 @@ GREEN="\033[1;32m"
 RED="\033[1;31m"
 WHITE="\033[1;37m"
 PURPLE="\033[1;35m"
+
+# Config
+ENABLE_ZFS_SNAPSHOTS=true
+CREATE_SNAPSHOT_FILE=true
+BIN_ZFS=$(which zfs-snap-mgr 2>/dev/null)
+
+# Overrides
+[[ -z $BIN_ZFS ]] && ENABLE_ZFS_SNAPSHOTS=false
 
 # Functions
 get_version() {
@@ -74,8 +84,29 @@ update_archlinux() {
 
     echo -e "${NL}${BLUE}Initializing update process...${NC}${NL}"
     for I in {5..1} ; do echo "Start in $I seconds..." ; sleep 1 ; done
+
+    if [[ $ENABLE_ZFS_SNAPSHOTS == true ]]; then
+        echo -e "${NL}${YELLOW}Making a snapshot of the system before updating...${NC}${NL}"
+        sudo zfs-snap-mgr create --debug --recursive --name="before-update"
+
+        if [[ $CREATE_SNAPSHOT_FILE == true ]]; then
+            echo -e "${NL}${YELLOW}Writing snapshot file...${NC}${NL}"
+            sudo zfs-snap-mgr send --debug --recursive --incremental
+        fi
+    fi
+
     echo -e "${NL}${BLUE}Applying updates...${NC}${NL}"
     sudo $BIN -Syuu --color always --noconfirm
+
+    if [[ $ENABLE_ZFS_SNAPSHOTS == true ]]; then
+        echo -e "${NL}${YELLOW}Making a snapshot of the system after updating...${NC}${NL}"
+        sudo zfs-snap-mgr create --debug --recursive --name="after-update"
+
+        if [[ $CREATE_SNAPSHOT_FILE == true ]]; then
+            echo -e "${NL}${YELLOW}Writing snapshot file...${NC}${NL}"
+            sudo zfs-snap-mgr send --debug --recursive --incremental
+        fi
+    fi
 }
 check_reboot() {
     # Check if reboot is required

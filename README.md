@@ -2,6 +2,16 @@
 
 A basic script for updating several linux based distributions.
 
+## Features
+
+* Sync and update package cache
+* Updated installed packages to their latest versions
+* Create a ZFS snapshot before and after updating the system
+
+> The ZFS snapshot feature is experimental and enabled only for __Arch Linux__.
+>
+> This feature is provided by `zfs-snap-mgr` from the [CachyOS ZFS Tools](https://github.com/Jiab77/cachyos-zfs-tools) project.
+
 ## Distributions
 
 Here is a list of supported distributions:
