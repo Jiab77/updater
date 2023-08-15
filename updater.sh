@@ -2,14 +2,14 @@
 # shellcheck disable=SC2034,SC1091,SC2086
 
 # Basic Ubuntu/CentOS/RockyLinux/ArchLinux semi-automatic update/upgrade script
-# Made by Jiab77 - 2022
+# Made by Jiab77 / 2022 - 2023
 #
 # This version contains an experimental ZFS snapshot feature.
 #
-# Version 0.6.2
+# Version 0.6.3
 
 # Options
-set +o xtrace
+set -o xtrace
 
 # Colors
 NC="\033[0m"
@@ -22,6 +22,7 @@ WHITE="\033[1;37m"
 PURPLE="\033[1;35m"
 
 # Config
+USE_PARU=true # Only for Arch Linux based distros
 ENABLE_ZFS_SNAPSHOTS=true
 CREATE_SNAPSHOT_FILE=true
 BIN_ZFS=$(which zfs-snap-mgr 2>/dev/null)
@@ -65,8 +66,9 @@ update_redhat() {
     sudo $BIN update -y
 }
 update_archlinux() {
-    BIN=$(which pacman 2>/dev/null)
-    [[ $BIN == "" ]] && echo -e "${NL}${RED}Missing pacman binary.${NC}${NL}" && exit 1
+    [[ $USE_PARU == true ]] && BIN=$(which paru 2>/dev/null)
+    [[ $USE_PARU == false ]] && BIN=$(which pacman 2>/dev/null)
+    [[ -z $BIN ]] && echo -e "${NL}${RED}Missing pacman or paru binary.${NC}${NL}" && exit 1
 
     echo -e "${NL}${BLUE}Cleaning package cache...${NC}"
     sudo $BIN -Scc --color always --noconfirm
@@ -87,11 +89,11 @@ update_archlinux() {
 
     if [[ $ENABLE_ZFS_SNAPSHOTS == true ]]; then
         echo -e "${NL}${YELLOW}Making a snapshot of the system before updating...${NC}${NL}"
-        sudo zfs-snap-mgr create --debug --recursive --name="before-update"
+        sudo zfs-snap-mgr create --debug --recursive --name="before-update" --no-header
 
         if [[ $CREATE_SNAPSHOT_FILE == true ]]; then
             echo -e "${NL}${YELLOW}Writing snapshot file...${NC}${NL}"
-            sudo zfs-snap-mgr send --debug --recursive --incremental
+            sudo zfs-snap-mgr send --debug --recursive --incremental --no-header
         fi
     fi
 
@@ -100,11 +102,11 @@ update_archlinux() {
 
     if [[ $ENABLE_ZFS_SNAPSHOTS == true ]]; then
         echo -e "${NL}${YELLOW}Making a snapshot of the system after updating...${NC}${NL}"
-        sudo zfs-snap-mgr create --debug --recursive --name="after-update"
+        sudo zfs-snap-mgr create --debug --recursive --name="after-update" --no-header
 
         if [[ $CREATE_SNAPSHOT_FILE == true ]]; then
             echo -e "${NL}${YELLOW}Writing snapshot file...${NC}${NL}"
-            sudo zfs-snap-mgr send --debug --recursive --incremental
+            sudo zfs-snap-mgr send --debug --recursive --incremental --no-header
         fi
     fi
 }
