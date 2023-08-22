@@ -74,10 +74,18 @@ update_archlinux() {
     sudo $BIN -Scc --color always --noconfirm
 
     echo -e "${NL}${BLUE}Refresh package cache...${NC}${NL}"
-    sudo $BIN -Sy --color always
+    if [[ $USE_PARU == true ]]; then
+        $BIN -Sy --color always
+    else
+        sudo $BIN -Sy --color always
+    fi
 
     echo -e "${NL}${BLUE}Display available updates...${NC}${NL}"
-    sudo $BIN -Qu --color always
+    if [[ $USE_PARU == true ]]; then
+        $BIN -Qu --color always
+    else
+        sudo $BIN -Qu --color always
+    fi
     RET_CODE_CHECK=$?
     if [[ $RET_CODE_CHECK -ne 0 ]]; then
         echo -e "\nUser cancelled update process, leaving...\n"
@@ -98,7 +106,11 @@ update_archlinux() {
     fi
 
     echo -e "${NL}${BLUE}Applying updates...${NC}${NL}"
-    sudo $BIN -Syuu --color always --noconfirm
+    if [[ $USE_PARU == true ]]; then
+        $BIN -Syuu --color always --noconfirm
+    else
+        sudo $BIN -Syuu --color always --noconfirm
+    fi
 
     if [[ $ENABLE_ZFS_SNAPSHOTS == true ]]; then
         echo -e "${NL}${YELLOW}Making a snapshot of the system after updating...${NC}${NL}"
