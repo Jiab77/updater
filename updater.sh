@@ -6,7 +6,7 @@
 #
 # This version contains an experimental ZFS snapshot feature.
 #
-# Version 0.6.3
+# Version 0.6.4
 
 # Options
 set +o xtrace
@@ -108,8 +108,26 @@ update_archlinux() {
     echo -e "${NL}${BLUE}Applying updates...${NC}${NL}"
     if [[ $USE_PARU == true ]]; then
         $BIN -Syuu --color always --noconfirm
+        RET_CODE_UPDATE=$?
     else
         sudo $BIN -Syuu --color always --noconfirm
+        RET_CODE_UPDATE=$?
+    fi
+
+    if [[ $RET_CODE_UPDATE -ne 0 ]]; then
+        echo -e "${NL}${YELLOW}Something wrong happened, retrying with confirmations enabled...${NC}${NL}"
+        if [[ $USE_PARU == true ]]; then
+            $BIN -Syuu --color always
+            RET_CODE_UPDATE_RETRY=$?
+        else
+            sudo $BIN -Syuu --color always
+            RET_CODE_UPDATE_RETRY=$?
+        fi
+    fi
+
+    if [[ $RET_CODE_UPDATE_RETRY -ne 0 ]]; then
+        echo -e "${NL}${RED}Error: Something is blocking the update process, please run it manually.${NC}${NL}"
+        exit 1
     fi
 
     if [[ $ENABLE_ZFS_SNAPSHOTS == true ]]; then
