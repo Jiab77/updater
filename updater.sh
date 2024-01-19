@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2034,SC1091,SC2086
+# shellcheck disable=SC2034,SC1091,SC2086,SC2320
 
 # Basic Ubuntu/CentOS/RockyLinux/ArchLinux semi-automatic update/upgrade script
 # Made by Jiab77 / 2022 - 2024
