@@ -2,11 +2,11 @@
 # shellcheck disable=SC2034,SC1091,SC2086
 
 # Basic Ubuntu/CentOS/RockyLinux/ArchLinux semi-automatic update/upgrade script
-# Made by Jiab77 / 2022 - 2023
+# Made by Jiab77 / 2022 - 2024
 #
 # This version contains an experimental ZFS snapshot feature.
 #
-# Version 0.6.4
+# Version 0.6.5
 
 # Options
 set +o xtrace
@@ -25,53 +25,72 @@ PURPLE="\033[1;35m"
 USE_PARU=true # Only for Arch Linux based distros
 ENABLE_ZFS_SNAPSHOTS=true
 CREATE_SNAPSHOT_FILE=true
+
+# Internals
 BIN_ZFS=$(which zfs-snap-mgr 2>/dev/null)
 
 # Overrides
 [[ -z $BIN_ZFS ]] && ENABLE_ZFS_SNAPSHOTS=false
 
 # Functions
-get_version() {
-    grep "# Version" $0 | grep -v grep | awk '{ print $3 }'
+function get_version() {
+    grep -m1 "# Version" $0 | awk '{ print $3 }'
 }
-update_ubuntu() {
+function die() {
+    echo -e "${NL}${WHITE}Error: ${RED}$*${NC}${NL}" >&2
+    exit 255
+}
+function print_usage() {
+    echo -e "${NL}Usage: $(basename "$0") [flags] - Automatically download and install latest updates.${NL}" >&2
+    exit $?
+}
+function update_ubuntu() {
+    BIN=$(which apt 2>/dev/null)
+    [[ -z $BIN ]] && die "You must have 'apt' installed to run this script."
+
     echo -e "${NL}${BLUE}Refresh package cache...${NC}${NL}"
-    sudo apt update --fix-missing -y
+    $BIN update --fix-missing -y
 
     echo -e "${NL}${BLUE}Display available updates...${NC}${NL}"
-    apt list --upgradable
+    $BIN list --upgradable
 
     echo -e "${NL}${BLUE}Initializing update process...${NC}${NL}"
     for I in {5..1} ; do echo "Start in $I seconds..." ; sleep 1 ; done
     echo -e "${NL}${BLUE}Applying updates...${NC}${NL}"
-    sudo apt dist-upgrade -y --allow-downgrades
+    $BIN dist-upgrade -y --allow-downgrades
 
     echo -e "${NL}${BLUE}Removing old packages...${NC}${NL}"
-    sudo apt autoremove --purge -y
+    $BIN autoremove --purge -y
 }
-update_redhat() {
-    BIN=$(which dnf 2>/dev/null)
-    [[ $BIN == "" ]] && BIN=$(which yum 2>/dev/null)
-    [[ $BIN == "" ]] && echo -e "${NL}${RED}Missing yum/dnf binary.${NC}${NL}" && exit 1
+function update_redhat() {
+    BIN_DNF=$(which dnf 2>/dev/null)
+    BIN_YUM=$(which yum 2>/dev/null)
+    [[ -z $BIN_DNF && -n $BIN_YUM ]] && BIN=$BIN_YUM || BIN=$BIN_DNF
+    [[ -z $BIN ]] && die "You must have at least 'yum' or 'dnf' installed to run this script."
 
     echo -e "${NL}${BLUE}Refresh package cache...${NC}${NL}"
-    sudo $BIN makecache
+    $BIN makecache
 
     echo -e "${NL}${BLUE}Display available updates...${NC}${NL}"
-    sudo $BIN check-update
+    $BIN check-update
 
     echo -e "${NL}${BLUE}Initializing update process...${NC}${NL}"
     for I in {5..1} ; do echo "Start in $I seconds..." ; sleep 1 ; done
     echo -e "${NL}${BLUE}Applying updates...${NC}${NL}"
-    sudo $BIN update -y
+    $BIN update -y
 }
-update_archlinux() {
-    [[ $USE_PARU == true ]] && BIN=$(which paru 2>/dev/null)
-    [[ $USE_PARU == false ]] && BIN=$(which pacman 2>/dev/null)
-    [[ -z $BIN ]] && echo -e "${NL}${RED}Missing pacman or paru binary.${NC}${NL}" && exit 1
+function update_archlinux() {
+    BIN_PARU=$(which paru 2>/dev/null)
+    BIN_PACMAN=$(which pacman 2>/dev/null)
+    [[ -z $BIN_PARU || $USE_PARU == false ]] && BIN=$BIN_PACMAN || BIN=$BIN_PARU
+    [[ -z $BIN ]] && die "You must have at least 'pacman' or 'paru' installed to run this script."
 
     echo -e "${NL}${BLUE}Cleaning package cache...${NC}"
-    sudo $BIN -Scc --color always --noconfirm
+    if [[ $USE_PARU == true ]]; then
+        $BIN -Scc --color always --noconfirm
+    else
+        sudo $BIN -Scc --color always --noconfirm
+    fi
 
     echo -e "${NL}${BLUE}Refresh package cache...${NC}${NL}"
     if [[ $USE_PARU == true ]]; then
@@ -83,12 +102,14 @@ update_archlinux() {
     echo -e "${NL}${BLUE}Display available updates...${NC}${NL}"
     if [[ $USE_PARU == true ]]; then
         $BIN -Qu --color always
+        RET_CODE_CHECK=$?
     else
         sudo $BIN -Qu --color always
+        RET_CODE_CHECK=$?
     fi
-    RET_CODE_CHECK=$?
+
     if [[ $RET_CODE_CHECK -ne 0 ]]; then
-        echo -e "\nUser cancelled update process, leaving...\n"
+        echo -e "${NL}User cancelled update process, leaving...${NL}"
         exit $RET_CODE_CHECK
     fi
 
@@ -126,8 +147,7 @@ update_archlinux() {
     fi
 
     if [[ $RET_CODE_UPDATE_RETRY -ne 0 ]]; then
-        echo -e "${NL}${RED}Error: Something is blocking the update process, please run it manually.${NC}${NL}"
-        exit 1
+        die "Something is blocking the update process, please run it manually."
     fi
 
     if [[ $ENABLE_ZFS_SNAPSHOTS == true ]]; then
@@ -140,26 +160,65 @@ update_archlinux() {
         fi
     fi
 }
-check_reboot() {
+function check_reboot() {
     # Check if reboot is required
     echo -e "${NL}${BLUE}Checking if reboot is required...${NC}${NL}"
 
-    # Reboot test for debian / ubuntu based hosts
-    if [[ -s /var/run/reboot-required ]]; then
-        cat /var/run/reboot-required
-    # Reboot test for pop_os
-    elif [[ -r /var/run/reboot-required && $(wc -l < /var/run/reboot-required) -eq 0 ]]; then
-        echo -e "** Reboot required **${NL}"
-    # Reboot test for redhat based hosts
-    elif [[ ! $(which needs-restarting 2>/dev/null) == "" ]]; then
-        needs-restarting -r
-    # Reboot test for archlinux based hosts
-    elif [[ $(pacman -Q linux-cachyos 2>/dev/null | cut -d " " -f 2) > $(uname -r | sed -e 's/-cachyos//') ]]; then
-        echo -e "** Reboot required **${NL}"
-    else
-        echo -e "Nothing to do.${NL}"
-        exit 0
-    fi
+    # Select proper reboot check
+    case $DISTRO in
+        "debian"|"ubuntu"|"ubuntu debian")
+            # Reboot test for debian / ubuntu based hosts
+            if [[ -s /var/run/reboot-required ]]; then
+                cat /var/run/reboot-required
+            # Reboot test for pop_os
+            elif [[ -r /var/run/reboot-required && $(wc -l < /var/run/reboot-required) -eq 0 ]]; then
+                echo -e "${YELLOW}** Reboot required **${NC}${NL}"
+            else
+                echo -e "${WHITE}Nothing to do.${NC}${NL}" ; exit 0
+            fi
+        ;;
+        "redhat"|"rhel fedora"|"rhel centos fedora"|"rancheros")
+            # Reboot test for redhat based hosts
+            if [[ -n $(which needs-restarting 2>/dev/null) ]]; then
+                needs-restarting -r
+            else
+                echo -e "${WHITE}Nothing to do.${NC}${NL}" ; exit 0
+            fi
+        ;;
+        "arch"|"cachyos")
+            # Reboot test for archlinux based hosts
+            if [[ $(pacman -Q linux-cachyos 2>/dev/null | cut -d " " -f 2) > $(uname -r | sed -e 's/-cachyos//') ]]; then
+                echo -e "${YELLOW}** Reboot required **${NC}${NL}"
+            else
+                echo -e "${WHITE}Nothing to do.${NC}${NL}" ; exit 0
+            fi
+        ;;
+        *) die "Unable to find proper reboot check for '${WHITE}${DISTRO}${RED}'." ;;
+    esac
+}
+function init_update() {
+    # Show machine hostname
+    echo -e "${NL}${WHITE}Running on ${GREEN}$(hostname -f)${WHITE}...${NC}"
+
+    # Show detected system
+    echo -e "${NL}${WHITE}Operating System: ${YELLOW}${PRETTY_NAME}${WHITE}${NC}"
+
+    # Select proper function
+    case $DISTRO in
+        "debian"|"ubuntu"|"ubuntu debian")
+            update_ubuntu
+            check_reboot
+        ;;
+        "redhat"|"rhel fedora"|"rhel centos fedora"|"rancheros")
+            update_redhat
+            check_reboot
+        ;;
+        "arch"|"cachyos")
+            update_archlinux
+            check_reboot
+        ;;
+        *) die "OS '${WHITE}${DISTRO}${RED}' not supported." ;;
+    esac
 }
 
 # OS-Release
@@ -175,28 +234,14 @@ fi
 # Script header
 echo -e "${NL}${BLUE}Basic ${PURPLE}${PRETTY_NAME}${BLUE} semi-automatic update/upgrade script - ${GREEN}v$(get_version)${NC}"
 
-# Show machine hostname
-echo -e "${NL}${WHITE}Running on ${GREEN}$(hostname -f)${WHITE}...${NC}"
+# Args
+[[ $1 == "-h" || $1 == "--help" ]] && print_usage
 
-# Show detected system
-echo -e "${NL}${WHITE}Operating System: ${YELLOW}${PRETTY_NAME}${WHITE}${NC}"
+# Checks
+[[ $# -gt 1 ]] && die "Too many arguments."
+if [[ ! $DISTRO == "arch" && ! $DISTRO == "cachyos" ]]; then
+    [[ $(id -u) -ne 0 ]] && die "You must run this script as root or with '${YELLOW}sudo${RED}'."
+fi
 
-# Select proper function
-case $DISTRO in
-    "debian"|"ubuntu"|"ubuntu debian")
-        update_ubuntu
-        check_reboot
-    ;;
-    "redhat"|"rhel fedora"|"rhel centos fedora"|"rancheros")
-        update_redhat
-        check_reboot
-    ;;
-    "arch"|"cachyos")
-        update_archlinux
-        check_reboot
-    ;;
-    *)
-        echo -e "${NL}${RED}OS '${WHITE}${DISTRO}${RED}' not supported.${NC}${NL}"
-        exit 1
-    ;;
-esac
+# Main
+init_update
