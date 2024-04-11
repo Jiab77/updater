@@ -1,15 +1,23 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2034,SC1091,SC2086,SC2320
 
-# Basic Ubuntu/CentOS/RockyLinux/ArchLinux semi-automatic update/upgrade script
+# Basic semi-automatic update/upgrade script
 # Made by Jiab77 / 2022 - 2024
 #
-# This version contains an experimental ZFS snapshot feature.
+# Supported distro:
+# - Debian / Ubuntu
+# - RHEL / CentOS / Rocky Linux
+# - Arch Linux / CachyOS
+# - Termux (experimental)
 #
-# Version 0.6.5
+# This version contains an experimental features:
+# - ZFS Snapshots
+# - FlatPak support
+#
+# Version 0.7.0
 
 # Options
-set +o xtrace
+[[ -r $HOME/.debug ]] && set -o xtrace || set +o xtrace
 
 # Colors
 NC="\033[0m"
@@ -23,13 +31,16 @@ PURPLE="\033[1;35m"
 
 # Config
 USE_PARU=true # Only for Arch Linux based distros
+ENABLE_FLATPAK=true
 ENABLE_ZFS_SNAPSHOTS=true
 CREATE_SNAPSHOT_FILE=true
 
 # Internals
-BIN_ZFS=$(which zfs-snap-mgr 2>/dev/null)
+BIN_FLATPAK=$(command -v flatpak 2>/dev/null)
+BIN_ZFS=$(command -v zfs-snap-mgr 2>/dev/null)
 
 # Overrides
+[[ -z $BIN_FLATPAK ]] && ENABLE_FLATPAK=false
 [[ -z $BIN_ZFS ]] && ENABLE_ZFS_SNAPSHOTS=false
 
 # Functions
@@ -44,8 +55,37 @@ function print_usage() {
     echo -e "${NL}Usage: $(basename "$0") [flags] - Automatically download and install latest updates.${NL}" >&2
     exit $?
 }
+function create_pre_update_snapshot() {
+    if [[ $ENABLE_ZFS_SNAPSHOTS == true ]]; then
+        echo -e "${NL}${YELLOW}Making a snapshot of the system before updating...${NC}${NL}"
+        sudo zfs-snap-mgr create --debug --recursive --name="before-update" --no-header
+
+        if [[ $CREATE_SNAPSHOT_FILE == true ]]; then
+            echo -e "${NL}${YELLOW}Writing snapshot file...${NC}${NL}"
+            sudo zfs-snap-mgr send --debug --recursive --incremental --no-header
+        fi
+    fi
+}
+function create_post_update_snapshot() {
+    if [[ $ENABLE_ZFS_SNAPSHOTS == true ]]; then
+        echo -e "${NL}${YELLOW}Making a snapshot of the system after updating...${NC}${NL}"
+        sudo zfs-snap-mgr create --debug --recursive --name="after-update" --no-header
+
+        if [[ $CREATE_SNAPSHOT_FILE == true ]]; then
+            echo -e "${NL}${YELLOW}Writing snapshot file...${NC}${NL}"
+            sudo zfs-snap-mgr send --debug --recursive --incremental --no-header
+        fi
+    fi
+}
+function update_flatpak() {
+    local STD_USER ; STD_USER="$(id -u 1000 -n)"
+    if [[ $ENABLE_FLATPAK == true ]]; then
+        echo -e "${NL}${BLUE}Updating FlatPak installed applications...${NC}${NL}"
+        sudo -u $STD_USER $BIN_FLATPAK update
+    fi
+}
 function update_ubuntu() {
-    BIN=$(which apt 2>/dev/null)
+    BIN=$(command -v apt 2>/dev/null)
     [[ -z $BIN ]] && die "You must have 'apt' installed to run this script."
 
     echo -e "${NL}${BLUE}Refresh package cache...${NC}${NL}"
@@ -56,6 +96,7 @@ function update_ubuntu() {
 
     echo -e "${NL}${BLUE}Initializing update process...${NC}${NL}"
     for I in {5..1} ; do echo "Start in $I seconds..." ; sleep 1 ; done
+
     echo -e "${NL}${BLUE}Applying updates...${NC}${NL}"
     $BIN dist-upgrade -y --allow-downgrades
 
@@ -63,8 +104,8 @@ function update_ubuntu() {
     $BIN autoremove --purge -y
 }
 function update_redhat() {
-    BIN_DNF=$(which dnf 2>/dev/null)
-    BIN_YUM=$(which yum 2>/dev/null)
+    BIN_DNF=$(command -v dnf 2>/dev/null)
+    BIN_YUM=$(command -v yum 2>/dev/null)
     [[ -z $BIN_DNF && -n $BIN_YUM ]] && BIN=$BIN_YUM || BIN=$BIN_DNF
     [[ -z $BIN ]] && die "You must have at least 'yum' or 'dnf' installed to run this script."
 
@@ -76,12 +117,13 @@ function update_redhat() {
 
     echo -e "${NL}${BLUE}Initializing update process...${NC}${NL}"
     for I in {5..1} ; do echo "Start in $I seconds..." ; sleep 1 ; done
+
     echo -e "${NL}${BLUE}Applying updates...${NC}${NL}"
     $BIN update -y
 }
 function update_archlinux() {
-    BIN_PARU=$(which paru 2>/dev/null)
-    BIN_PACMAN=$(which pacman 2>/dev/null)
+    BIN_PARU=$(command -v paru 2>/dev/null)
+    BIN_PACMAN=$(command -v pacman 2>/dev/null)
     [[ -z $BIN_PARU || $USE_PARU == false ]] && BIN=$BIN_PACMAN || BIN=$BIN_PARU
     [[ -z $BIN ]] && die "You must have at least 'pacman' or 'paru' installed to run this script."
 
@@ -116,15 +158,9 @@ function update_archlinux() {
     echo -e "${NL}${BLUE}Initializing update process...${NC}${NL}"
     for I in {5..1} ; do echo "Start in $I seconds..." ; sleep 1 ; done
 
-    if [[ $ENABLE_ZFS_SNAPSHOTS == true ]]; then
-        echo -e "${NL}${YELLOW}Making a snapshot of the system before updating...${NC}${NL}"
-        sudo zfs-snap-mgr create --debug --recursive --name="before-update" --no-header
+    create_pre_update_snapshot
 
-        if [[ $CREATE_SNAPSHOT_FILE == true ]]; then
-            echo -e "${NL}${YELLOW}Writing snapshot file...${NC}${NL}"
-            sudo zfs-snap-mgr send --debug --recursive --incremental --no-header
-        fi
-    fi
+    update_flatpak
 
     echo -e "${NL}${BLUE}Applying updates...${NC}${NL}"
     if [[ $USE_PARU == true ]]; then
@@ -150,15 +186,29 @@ function update_archlinux() {
         die "Something is blocking the update process, please run it manually."
     fi
 
-    if [[ $ENABLE_ZFS_SNAPSHOTS == true ]]; then
-        echo -e "${NL}${YELLOW}Making a snapshot of the system after updating...${NC}${NL}"
-        sudo zfs-snap-mgr create --debug --recursive --name="after-update" --no-header
+    create_post_update_snapshot
+}
+function update_termux() {
+    BIN=$(command -v apt 2>/dev/null)
+    [[ -z $BIN ]] && die "You must have 'apt' installed to run this script."
 
-        if [[ $CREATE_SNAPSHOT_FILE == true ]]; then
-            echo -e "${NL}${YELLOW}Writing snapshot file...${NC}${NL}"
-            sudo zfs-snap-mgr send --debug --recursive --incremental --no-header
-        fi
-    fi
+    echo -e "${NL}${BLUE}Refresh package cache...${NC}${NL}"
+    pkg update -y
+
+    echo -e "${NL}${BLUE}Display available updates...${NC}${NL}"
+    $BIN list --upgradable
+
+    echo -e "${NL}${BLUE}Initializing update process...${NC}${NL}"
+    for I in {5..1} ; do echo "Start in $I seconds..." ; sleep 1 ; done
+
+    echo -e "${NL}${BLUE}Applying updates...${NC}${NL}"
+    pkg upgrade -y
+
+    echo -e "${NL}${BLUE}Removing old packages...${NC}${NL}"
+    $BIN autoremove --purge -y
+
+    echo -e "${NL}${BLUE}Cleaning packages cache...${NC}${NL}"
+    pkg autoclean
 }
 function check_reboot() {
     # Check if reboot is required
@@ -179,7 +229,7 @@ function check_reboot() {
         ;;
         "redhat"|"rhel fedora"|"rhel centos fedora"|"rancheros")
             # Reboot test for redhat based hosts
-            if [[ -n $(which needs-restarting 2>/dev/null) ]]; then
+            if [[ -n $(command -v needs-restarting 2>/dev/null) ]]; then
                 needs-restarting -r
             else
                 echo -e "${WHITE}Nothing to do.${NC}${NL}" ; exit 0
@@ -192,6 +242,9 @@ function check_reboot() {
             else
                 echo -e "${WHITE}Nothing to do.${NC}${NL}" ; exit 0
             fi
+        ;;
+        "termux")
+            echo -e "${YELLOW}** Running on mobile phone **${NC}${NL}${YELLOW}Relaunch the app should be enough.${NC}${NL}"
         ;;
         *) die "Unable to find proper reboot check for '${WHITE}${DISTRO}${RED}'." ;;
     esac
@@ -207,15 +260,20 @@ function init_update() {
     case $DISTRO in
         "debian"|"ubuntu"|"ubuntu debian")
             update_ubuntu
+            update_flatpak
             check_reboot
         ;;
         "redhat"|"rhel fedora"|"rhel centos fedora"|"rancheros")
             update_redhat
+            update_flatpak
             check_reboot
         ;;
         "arch"|"cachyos")
             update_archlinux
             check_reboot
+        ;;
+        "termux")
+            update_termux
         ;;
         *) die "OS '${WHITE}${DISTRO}${RED}' not supported." ;;
     esac
@@ -231,6 +289,12 @@ else
     DISTRO=$ID
 fi
 
+# Add 'termux' support
+if [[ -z $DISTRO && $(printenv | grep -ci "termux") -ne 0 ]]; then
+    DISTRO="termux"
+    PRETTY_NAME="Termux"
+fi
+
 # Script header
 echo -e "${NL}${BLUE}Basic ${PURPLE}${PRETTY_NAME}${BLUE} semi-automatic update/upgrade script - ${GREEN}v$(get_version)${NC}"
 
@@ -239,7 +303,7 @@ echo -e "${NL}${BLUE}Basic ${PURPLE}${PRETTY_NAME}${BLUE} semi-automatic update/
 
 # Checks
 [[ $# -gt 1 ]] && die "Too many arguments."
-if [[ ! $DISTRO == "arch" && ! $DISTRO == "cachyos" ]]; then
+if [[ ! $DISTRO == "arch" && ! $DISTRO == "cachyos" && ! $DISTRO == "termux" ]]; then
     [[ $(id -u) -ne 0 ]] && die "You must run this script as root or with '${YELLOW}sudo${RED}'."
 fi
 
