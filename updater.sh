@@ -14,7 +14,7 @@
 # - ZFS Snapshots
 # - FlatPak support
 #
-# Version 0.7.0
+# Version 0.7.1
 
 # Options
 [[ -r $HOME/.debug ]] && set -o xtrace || set +o xtrace
@@ -280,7 +280,7 @@ function init_update() {
 }
 
 # OS-Release
-source /etc/os-release
+[[ -r /etc/os-release ]] && source /etc/os-release
 
 # Fix empty 'DISTRO' variable
 if [[ -n $ID_LIKE ]]; then
@@ -303,6 +303,7 @@ echo -e "${NL}${BLUE}Basic ${PURPLE}${PRETTY_NAME}${BLUE} semi-automatic update/
 
 # Checks
 [[ $# -gt 1 ]] && die "Too many arguments."
+[[ -z $DISTRO ]] && die "Unable to detect your operating system."
 if [[ ! $DISTRO == "arch" && ! $DISTRO == "cachyos" && ! $DISTRO == "termux" ]]; then
     [[ $(id -u) -ne 0 ]] && die "You must run this script as root or with '${YELLOW}sudo${RED}'."
 fi
