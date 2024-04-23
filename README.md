@@ -19,6 +19,7 @@ Here is a list of supported distributions:
 * Debian / Ubuntu / Pop!_OS / ElementaryOS
 * RedHat / CentOS / Fedora / Rocky Linux
 * Arch Linux / CachyOS
+* Termux
 
 Please, feel free to create a new issue for requesting support for additional distributions.
 
@@ -27,6 +28,8 @@ Please, feel free to create a new issue for requesting support for additional di
 ```console
 $ ./updater.sh
 ```
+
+> Depending on your OS, you may have to run the script with `sudo`.
 
 ## Author
 
