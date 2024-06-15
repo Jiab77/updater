@@ -14,7 +14,7 @@
 # - ZFS Snapshots
 # - FlatPak support
 #
-# Version 0.7.1
+# Version 0.7.2
 
 # Options
 [[ -r $HOME/.debug ]] && set -o xtrace || set +o xtrace
@@ -56,9 +56,9 @@ function print_usage() {
     exit $?
 }
 function create_pre_update_snapshot() {
-    if [[ $ENABLE_ZFS_SNAPSHOTS == true ]]; then
+    if [[ $ENABLE_ZFS_SNAPSHOTS == true && ! -r /tmp/.before-update-snapshot-done ]]; then
         echo -e "${NL}${YELLOW}Making a snapshot of the system before updating...${NC}${NL}"
-        sudo zfs-snap-mgr create --debug --recursive --name="before-update" --no-header
+        sudo zfs-snap-mgr create --debug --recursive --name="before-update" --no-header && touch /tmp/.before-update-snapshot-done
 
         if [[ $CREATE_SNAPSHOT_FILE == true ]]; then
             echo -e "${NL}${YELLOW}Writing snapshot file...${NC}${NL}"
@@ -67,9 +67,9 @@ function create_pre_update_snapshot() {
     fi
 }
 function create_post_update_snapshot() {
-    if [[ $ENABLE_ZFS_SNAPSHOTS == true ]]; then
+    if [[ $ENABLE_ZFS_SNAPSHOTS == true && ! -r /tmp/.after-update-snapshot-done ]]; then
         echo -e "${NL}${YELLOW}Making a snapshot of the system after updating...${NC}${NL}"
-        sudo zfs-snap-mgr create --debug --recursive --name="after-update" --no-header
+        sudo zfs-snap-mgr create --debug --recursive --name="after-update" --no-header && touch /tmp/.after-update-snapshot-done
 
         if [[ $CREATE_SNAPSHOT_FILE == true ]]; then
             echo -e "${NL}${YELLOW}Writing snapshot file...${NC}${NL}"
@@ -81,7 +81,7 @@ function update_flatpak() {
     local STD_USER ; STD_USER="$(id -u 1000 -n)"
     if [[ $ENABLE_FLATPAK == true ]]; then
         echo -e "${NL}${BLUE}Updating FlatPak installed applications...${NC}${NL}"
-        sudo -u $STD_USER $BIN_FLATPAK update
+        sudo -u $STD_USER $BIN_FLATPAK update -y
     fi
 }
 function update_ubuntu() {
