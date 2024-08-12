@@ -14,7 +14,10 @@
 # - ZFS Snapshots
 # - FlatPak support
 #
-# Version 0.7.2
+# Breaking changes:
+# - As of version 0.8.0, you must use 'sudo' except for Termux.
+#
+# Version 0.8.0
 
 # Options
 [[ -r $HOME/.debug ]] && set -o xtrace || set +o xtrace
@@ -30,7 +33,7 @@ WHITE="\033[1;37m"
 PURPLE="\033[1;35m"
 
 # Config
-USE_PARU=true # Only for Arch Linux based distros
+USE_PARU=true               # Only for Arch Linux based distros
 ENABLE_FLATPAK=true
 ENABLE_ZFS_SNAPSHOTS=true
 CREATE_SNAPSHOT_FILE=true
@@ -52,33 +55,41 @@ function die() {
     exit 255
 }
 function print_usage() {
-    echo -e "${NL}Usage: $(basename "$0") [flags] - Automatically download and install latest updates.${NL}" >&2
-    exit $?
+    echo -e "${NL}Usage: $(basename "$0") [flags] - Automatically download and install latest updates."
+    echo -e "${NL}Flags:"
+    echo -e "  -h | --help\t\tPrint this message and exit"
+    echo -e "  -v | --version\tPrint version and exit"
+    echo
+    exit
+}
+function print_version() {
+  echo -e "\nVersion: $(get_version)\n"
+  exit
 }
 function create_pre_update_snapshot() {
     if [[ $ENABLE_ZFS_SNAPSHOTS == true && ! -r /tmp/.before-update-snapshot-done ]]; then
         echo -e "${NL}${YELLOW}Making a snapshot of the system before updating...${NC}${NL}"
-        sudo zfs-snap-mgr create --debug --recursive --name="before-update" --no-header && touch /tmp/.before-update-snapshot-done
+        zfs-snap-mgr create --debug --recursive --name="before-update" --no-header && touch /tmp/.before-update-snapshot-done
 
         if [[ $CREATE_SNAPSHOT_FILE == true ]]; then
             echo -e "${NL}${YELLOW}Writing snapshot file...${NC}${NL}"
-            sudo zfs-snap-mgr send --debug --recursive --incremental --no-header
+            zfs-snap-mgr send --debug --recursive --incremental --no-header
         fi
     fi
 }
 function create_post_update_snapshot() {
     if [[ $ENABLE_ZFS_SNAPSHOTS == true && ! -r /tmp/.after-update-snapshot-done ]]; then
         echo -e "${NL}${YELLOW}Making a snapshot of the system after updating...${NC}${NL}"
-        sudo zfs-snap-mgr create --debug --recursive --name="after-update" --no-header && touch /tmp/.after-update-snapshot-done
+        zfs-snap-mgr create --debug --recursive --name="after-update" --no-header && touch /tmp/.after-update-snapshot-done
 
         if [[ $CREATE_SNAPSHOT_FILE == true ]]; then
             echo -e "${NL}${YELLOW}Writing snapshot file...${NC}${NL}"
-            sudo zfs-snap-mgr send --debug --recursive --incremental --no-header
+            zfs-snap-mgr send --debug --recursive --incremental --no-header
         fi
     fi
 }
 function update_flatpak() {
-    local STD_USER ; STD_USER="$(id -u 1000 -n)"
+    local STD_USER ; STD_USER="$(id -u 1000 -n)"  # Assuming that standard user has UID 1000
     if [[ $ENABLE_FLATPAK == true ]]; then
         echo -e "${NL}${BLUE}Updating FlatPak installed applications...${NC}${NL}"
         sudo -u $STD_USER $BIN_FLATPAK update -y
@@ -128,27 +139,14 @@ function update_archlinux() {
     [[ -z $BIN ]] && die "You must have at least 'pacman' or 'paru' installed to run this script."
 
     echo -e "${NL}${BLUE}Cleaning package cache...${NC}"
-    if [[ $USE_PARU == true ]]; then
-        $BIN -Scc --color always --noconfirm
-    else
-        sudo $BIN -Scc --color always --noconfirm
-    fi
+    $BIN -Scc --color always --noconfirm
 
     echo -e "${NL}${BLUE}Refresh package cache...${NC}${NL}"
-    if [[ $USE_PARU == true ]]; then
-        $BIN -Sy --color always
-    else
-        sudo $BIN -Sy --color always
-    fi
+    $BIN -Sy --color always
 
     echo -e "${NL}${BLUE}Display available updates...${NC}${NL}"
-    if [[ $USE_PARU == true ]]; then
-        $BIN -Qu --color always
-        RET_CODE_CHECK=$?
-    else
-        sudo $BIN -Qu --color always
-        RET_CODE_CHECK=$?
-    fi
+    $BIN -Qu --color always
+    RET_CODE_CHECK=$?
 
     if [[ $RET_CODE_CHECK -ne 0 ]]; then
         echo -e "${NL}User cancelled update process, leaving...${NL}"
@@ -163,23 +161,13 @@ function update_archlinux() {
     update_flatpak
 
     echo -e "${NL}${BLUE}Applying updates...${NC}${NL}"
-    if [[ $USE_PARU == true ]]; then
-        $BIN -Syuu --color always --noconfirm
-        RET_CODE_UPDATE=$?
-    else
-        sudo $BIN -Syuu --color always --noconfirm
-        RET_CODE_UPDATE=$?
-    fi
+    $BIN -Syuu --color always --noconfirm
+    RET_CODE_UPDATE=$?
 
     if [[ $RET_CODE_UPDATE -ne 0 ]]; then
         echo -e "${NL}${YELLOW}Something wrong happened, retrying with confirmations enabled...${NC}${NL}"
-        if [[ $USE_PARU == true ]]; then
-            $BIN -Syuu --color always
-            RET_CODE_UPDATE_RETRY=$?
-        else
-            sudo $BIN -Syuu --color always
-            RET_CODE_UPDATE_RETRY=$?
-        fi
+        $BIN -Syuu --color always
+        RET_CODE_UPDATE_RETRY=$?
     fi
 
     if [[ $RET_CODE_UPDATE_RETRY -ne 0 ]]; then
@@ -300,11 +288,12 @@ echo -e "${NL}${BLUE}Basic ${PURPLE}${PRETTY_NAME}${BLUE} semi-automatic update/
 
 # Args
 [[ $1 == "-h" || $1 == "--help" ]] && print_usage
+[[ $1 == "-v" || $1 == "--version" ]] && print_version
 
 # Checks
 [[ $# -gt 1 ]] && die "Too many arguments."
 [[ -z $DISTRO ]] && die "Unable to detect your operating system."
-if [[ ! $DISTRO == "arch" && ! $DISTRO == "cachyos" && ! $DISTRO == "termux" ]]; then
+if [[ ! $DISTRO == "termux" ]]; then
     [[ $(id -u) -ne 0 ]] && die "You must run this script as root or with '${YELLOW}sudo${RED}'."
 fi
 
