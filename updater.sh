@@ -17,7 +17,7 @@
 # Breaking changes:
 # - As of version 0.8.0, you must use 'sudo' except for Termux.
 #
-# Version 0.8.0
+# Version 0.8.1
 
 # Options
 [[ -r $HOME/.debug ]] && set -o xtrace || set +o xtrace
@@ -133,19 +133,32 @@ function update_redhat() {
     $BIN update -y
 }
 function update_archlinux() {
+    local STD_USER ; STD_USER="$(id -u 1000 -n)"
     BIN_PARU=$(command -v paru 2>/dev/null)
     BIN_PACMAN=$(command -v pacman 2>/dev/null)
     [[ -z $BIN_PARU || $USE_PARU == false ]] && BIN=$BIN_PACMAN || BIN=$BIN_PARU
     [[ -z $BIN ]] && die "You must have at least 'pacman' or 'paru' installed to run this script."
 
     echo -e "${NL}${BLUE}Cleaning package cache...${NC}"
-    $BIN -Scc --color always --noconfirm
+    if [[ $USE_PARU == true ]]; then
+        sudo -u $STD_USER $BIN -Scc --color always --noconfirm
+    else
+        $BIN -Scc --color always --noconfirm
+    fi
 
     echo -e "${NL}${BLUE}Refresh package cache...${NC}${NL}"
-    $BIN -Sy --color always
+    if [[ $USE_PARU == true ]]; then
+        sudo -u $STD_USER $BIN -Sy --color always
+    else
+        $BIN -Sy --color always
+    fi
 
     echo -e "${NL}${BLUE}Display available updates...${NC}${NL}"
-    $BIN -Qu --color always
+    if [[ $USE_PARU == true ]]; then
+        sudo -u $STD_USER $BIN -Qu --color always
+    else
+        $BIN -Qu --color always
+    fi
     RET_CODE_CHECK=$?
 
     if [[ $RET_CODE_CHECK -ne 0 ]]; then
@@ -158,21 +171,29 @@ function update_archlinux() {
 
     create_pre_update_snapshot
 
-    update_flatpak
-
     echo -e "${NL}${BLUE}Applying updates...${NC}${NL}"
-    $BIN -Syuu --color always --noconfirm
+    if [[ $USE_PARU == true ]]; then
+        sudo -u $STD_USER $BIN -Syuu --color always --noconfirm
+    else
+        $BIN -Syuu --color always --noconfirm
+    fi
     RET_CODE_UPDATE=$?
 
     if [[ $RET_CODE_UPDATE -ne 0 ]]; then
         echo -e "${NL}${YELLOW}Something wrong happened, retrying with confirmations enabled...${NC}${NL}"
-        $BIN -Syuu --color always
+        if [[ $USE_PARU == true ]]; then
+            sudo -u $STD_USER $BIN -Syuu --color always
+        else
+            $BIN -Syuu --color always
+        fi
         RET_CODE_UPDATE_RETRY=$?
     fi
 
     if [[ $RET_CODE_UPDATE_RETRY -ne 0 ]]; then
         die "Something is blocking the update process, please run it manually."
     fi
+
+    update_flatpak
 
     create_post_update_snapshot
 }
