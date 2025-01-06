@@ -2,7 +2,7 @@
 # shellcheck disable=SC2034,SC1091,SC2086,SC2320
 
 # Basic semi-automatic update/upgrade script
-# Made by Jiab77 / 2022 - 2024
+# Made by Jiab77 / 2022 - 2025
 #
 # Supported distro:
 # - Debian / Ubuntu
@@ -16,8 +16,9 @@
 #
 # Breaking changes:
 # - As of version 0.8.0, you must use 'sudo' except for Termux.
+# - As of version 0.8.2, you NO LONGER NEED TO use 'sudo'.
 #
-# Version 0.8.1
+# Version 0.8.2
 
 # Options
 [[ -r $HOME/.debug ]] && set -o xtrace || set +o xtrace
@@ -33,10 +34,10 @@ WHITE="\033[1;37m"
 PURPLE="\033[1;35m"
 
 # Config
-USE_PARU=true               # Only for Arch Linux based distros
+USE_PARU=true                # Only for Arch Linux based distros
 ENABLE_FLATPAK=true
-ENABLE_ZFS_SNAPSHOTS=true
-CREATE_SNAPSHOT_FILE=true
+ENABLE_ZFS_SNAPSHOTS=true    # For ZFS only
+CREATE_SNAPSHOT_FILE=false   # Create ZFS snapshot files
 
 # Internals
 BIN_FLATPAK=$(command -v flatpak 2>/dev/null)
@@ -66,33 +67,41 @@ function print_version() {
   echo -e "\nVersion: $(get_version)\n"
   exit
 }
+function get_std_user() {
+  # No longer assuming that standard user has UID 1000
+  if [[ $(printenv | grep -ci "sudo") -ne 0 ]]; then
+    echo -n $SUDO_USER
+  else
+    echo -n $EUID
+  fi
+}
 function create_pre_update_snapshot() {
     if [[ $ENABLE_ZFS_SNAPSHOTS == true && ! -r /tmp/.before-update-snapshot-done ]]; then
         echo -e "${NL}${YELLOW}Making a snapshot of the system before updating...${NC}${NL}"
-        zfs-snap-mgr create --debug --recursive --name="before-update" --no-header && touch /tmp/.before-update-snapshot-done
+        sudo zfs-snap-mgr create --debug --recursive --name="before-update" --no-header && touch /tmp/.before-update-snapshot-done
 
         if [[ $CREATE_SNAPSHOT_FILE == true ]]; then
             echo -e "${NL}${YELLOW}Writing snapshot file...${NC}${NL}"
-            zfs-snap-mgr send --debug --recursive --incremental --no-header
+            sudo zfs-snap-mgr send --debug --recursive --incremental --no-header
         fi
     fi
 }
 function create_post_update_snapshot() {
     if [[ $ENABLE_ZFS_SNAPSHOTS == true && ! -r /tmp/.after-update-snapshot-done ]]; then
         echo -e "${NL}${YELLOW}Making a snapshot of the system after updating...${NC}${NL}"
-        zfs-snap-mgr create --debug --recursive --name="after-update" --no-header && touch /tmp/.after-update-snapshot-done
+        sudo zfs-snap-mgr create --debug --recursive --name="after-update" --no-header && touch /tmp/.after-update-snapshot-done
 
         if [[ $CREATE_SNAPSHOT_FILE == true ]]; then
             echo -e "${NL}${YELLOW}Writing snapshot file...${NC}${NL}"
-            zfs-snap-mgr send --debug --recursive --incremental --no-header
+            sudo zfs-snap-mgr send --debug --recursive --incremental --no-header
         fi
     fi
 }
 function update_flatpak() {
-    local STD_USER ; STD_USER="$(id -u 1000 -n)"  # Assuming that standard user has UID 1000
     if [[ $ENABLE_FLATPAK == true ]]; then
         echo -e "${NL}${BLUE}Updating FlatPak installed applications...${NC}${NL}"
-        sudo -u $STD_USER $BIN_FLATPAK update -y
+        # sudo -u $STD_USER $BIN_FLATPAK update -y
+        $BIN_FLATPAK update -y
     fi
 }
 function update_ubuntu() {
@@ -100,7 +109,7 @@ function update_ubuntu() {
     [[ -z $BIN ]] && die "You must have 'apt' installed to run this script."
 
     echo -e "${NL}${BLUE}Refresh package cache...${NC}${NL}"
-    $BIN update --fix-missing -y
+    sudo $BIN update --fix-missing -y
 
     echo -e "${NL}${BLUE}Display available updates...${NC}${NL}"
     $BIN list --upgradable
@@ -109,10 +118,10 @@ function update_ubuntu() {
     for I in {5..1} ; do echo "Start in $I seconds..." ; sleep 1 ; done
 
     echo -e "${NL}${BLUE}Applying updates...${NC}${NL}"
-    $BIN dist-upgrade -y --allow-downgrades
+    sudo $BIN dist-upgrade -y --allow-downgrades
 
     echo -e "${NL}${BLUE}Removing old packages...${NC}${NL}"
-    $BIN autoremove --purge -y
+    sudo $BIN autoremove --purge -y
 }
 function update_redhat() {
     BIN_DNF=$(command -v dnf 2>/dev/null)
@@ -121,19 +130,18 @@ function update_redhat() {
     [[ -z $BIN ]] && die "You must have at least 'yum' or 'dnf' installed to run this script."
 
     echo -e "${NL}${BLUE}Refresh package cache...${NC}${NL}"
-    $BIN makecache
+    sudo $BIN makecache
 
     echo -e "${NL}${BLUE}Display available updates...${NC}${NL}"
-    $BIN check-update
+    sudo $BIN check-update
 
     echo -e "${NL}${BLUE}Initializing update process...${NC}${NL}"
     for I in {5..1} ; do echo "Start in $I seconds..." ; sleep 1 ; done
 
     echo -e "${NL}${BLUE}Applying updates...${NC}${NL}"
-    $BIN update -y
+    sudo $BIN update -y
 }
 function update_archlinux() {
-    local STD_USER ; STD_USER="$(id -u 1000 -n)"
     BIN_PARU=$(command -v paru 2>/dev/null)
     BIN_PACMAN=$(command -v pacman 2>/dev/null)
     [[ -z $BIN_PARU || $USE_PARU == false ]] && BIN=$BIN_PACMAN || BIN=$BIN_PARU
@@ -141,23 +149,26 @@ function update_archlinux() {
 
     echo -e "${NL}${BLUE}Cleaning package cache...${NC}"
     if [[ $USE_PARU == true ]]; then
-        sudo -u $STD_USER $BIN -Scc --color always --noconfirm
-    else
+        # sudo -u $STD_USER $BIN -Scc --color always --noconfirm
         $BIN -Scc --color always --noconfirm
+    else
+        sudo $BIN -Scc --color always --noconfirm
     fi
 
     echo -e "${NL}${BLUE}Refresh package cache...${NC}${NL}"
     if [[ $USE_PARU == true ]]; then
-        sudo -u $STD_USER $BIN -Sy --color always
-    else
+        # sudo -u $STD_USER $BIN -Sy --color always
         $BIN -Sy --color always
+    else
+        sudo $BIN -Sy --color always
     fi
 
     echo -e "${NL}${BLUE}Display available updates...${NC}${NL}"
     if [[ $USE_PARU == true ]]; then
-        sudo -u $STD_USER $BIN -Qu --color always
-    else
+        # sudo -u $STD_USER $BIN -Qu --color always
         $BIN -Qu --color always
+    else
+        sudo $BIN -Qu --color always
     fi
     RET_CODE_CHECK=$?
 
@@ -173,18 +184,20 @@ function update_archlinux() {
 
     echo -e "${NL}${BLUE}Applying updates...${NC}${NL}"
     if [[ $USE_PARU == true ]]; then
-        sudo -u $STD_USER $BIN -Syuu --color always --noconfirm
-    else
+        # sudo -u $STD_USER $BIN -Syuu --color always --noconfirm
         $BIN -Syuu --color always --noconfirm
+    else
+        sudo $BIN -Syuu --color always --noconfirm
     fi
     RET_CODE_UPDATE=$?
 
     if [[ $RET_CODE_UPDATE -ne 0 ]]; then
         echo -e "${NL}${YELLOW}Something wrong happened, retrying with confirmations enabled...${NC}${NL}"
         if [[ $USE_PARU == true ]]; then
-            sudo -u $STD_USER $BIN -Syuu --color always
-        else
+            # sudo -u $STD_USER $BIN -Syuu --color always
             $BIN -Syuu --color always
+        else
+            sudo $BIN -Syuu --color always
         fi
         RET_CODE_UPDATE_RETRY=$?
     fi
@@ -259,6 +272,9 @@ function check_reboot() {
     esac
 }
 function init_update() {
+    # Get running user name
+    STD_USER="$(get_std_user)"
+
     # Show machine hostname
     echo -e "${NL}${WHITE}Running on ${GREEN}$(hostname -f)${WHITE}...${NC}"
 
@@ -314,9 +330,9 @@ echo -e "${NL}${BLUE}Basic ${PURPLE}${PRETTY_NAME}${BLUE} semi-automatic update/
 # Checks
 [[ $# -gt 1 ]] && die "Too many arguments."
 [[ -z $DISTRO ]] && die "Unable to detect your operating system."
-if [[ ! $DISTRO == "termux" ]]; then
-    [[ $(id -u) -ne 0 ]] && die "You must run this script as root or with '${YELLOW}sudo${RED}'."
-fi
+# if [[ ! $DISTRO == "termux" ]]; then
+#     [[ $(id -u) -ne 0 ]] && die "You must run this script as root or with '${YELLOW}sudo${RED}'."
+# fi
 
 # Main
 init_update

@@ -29,7 +29,9 @@ Please, feel free to create a new issue for requesting support for additional di
 $ ./updater.sh
 ```
 
+<!--
 > Depending on your OS, you may have to run the script with `sudo`.
+-->
 
 ## Author
 
